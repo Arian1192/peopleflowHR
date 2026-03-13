@@ -1,19 +1,12 @@
-# Python
-__pycache__/
-*.pyc
-.venv/
-
-# Node
-node_modules/
-dist/
-
-# Env
+node_modules
+.npm
 .env
-.env.*
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+.env.local
+.env.*.local
+coverage
+.next
+dist
+*.log
 .DS_Store
+
+*.tsbuildinfo
