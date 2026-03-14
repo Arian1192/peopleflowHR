@@ -13,7 +13,53 @@ import type {
 
 const now = () => new Date().toISOString();
 
-export class InMemoryStore {
+export type Store = {
+  createTenant(name: string): Tenant;
+  createUser(email: string): User;
+  createMembership(input: {
+    userId: string;
+    tenantId: string;
+    role: Role;
+    status?: Membership["status"];
+  }): Membership;
+  getMembership(userId: string, tenantId: string): Membership | null;
+  createDepartment(input: { tenantId: string; name: string }): Department;
+  listDepartments(tenantId: string): Department[];
+  createEmployee(input: {
+    tenantId: string;
+    userId: string;
+    fullName: string;
+    email: string;
+    departmentId: string | null;
+    managerEmployeeId: string | null;
+  }): Employee;
+  listEmployees(tenantId: string): Employee[];
+  findEmployeeByUser(tenantId: string, userId: string): Employee | null;
+  findEmployee(tenantId: string, employeeId: string): Employee | null;
+  createLeaveRequest(input: {
+    tenantId: string;
+    employeeId: string;
+    createdByUserId: string;
+    type: LeaveRequest["type"];
+    startsAt: string;
+    endsAt: string;
+    note: string | null;
+  }): LeaveRequest;
+  listLeaveRequests(tenantId: string): LeaveRequest[];
+  findLeaveRequest(tenantId: string, requestId: string): LeaveRequest | null;
+  decideLeaveRequest(input: {
+    tenantId: string;
+    requestId: string;
+    action: "approved" | "rejected";
+    actorUserId: string;
+    reason: string;
+  }): { request: LeaveRequest; event: ApprovalEvent } | null;
+  listApprovalEvents(tenantId: string): ApprovalEvent[];
+  appendAudit(input: Omit<AuditEvent, "id" | "createdAt">): AuditEvent;
+  listAuditEvents(tenantId: string): AuditEvent[];
+};
+
+export class InMemoryStore implements Store {
   private tenants = new Map<string, Tenant>();
   private users = new Map<string, User>();
   private memberships = new Map<string, Membership>();

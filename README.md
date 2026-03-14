@@ -5,7 +5,7 @@ Monorepo bootstrap for a multi-tenant HR platform aligned to ADR-001.
 ## Stack
 - `apps/web`: Next.js 15 + TypeScript (App Router)
 - `apps/api`: Fastify + TypeScript tenant-safe MVP APIs
-- Infrastructure: Docker Compose (`web`, `api`, `db`, `redis`)
+- Infrastructure: Docker Compose (`web`, `api`)
 - CI: GitHub Actions for lint/typecheck/test
 
 ## Quick start
@@ -24,13 +24,37 @@ npm run dev --workspace apps/web
 docker compose up --build
 ```
 
+Esto levanta:
+- `web` en `http://localhost:3000`
+- `api` en `http://localhost:4000`
+
+## Optional Future Infrastructure
+If you want local Postgres + Redis ready for future development:
+```bash
+npm run dev:infra
+```
+
+This lifts:
+- `web` in `http://localhost:3000`
+- `api` in `http://localhost:4000`
+- `postgres` in `http://localhost:5432`
+- `redis` in `http://localhost:6379`
+
+Notes:
+- The current API still uses the in-memory store.
+- `DATABASE_URL` and `REDIS_URL` are wired so readiness checks can validate connectivity now.
+- Use `GET /readyz` to verify process + optional infrastructure reachability.
+
 ## Coolify deployment configuration
 Use the step-by-step Coolify setup guide in [`COOLIFY_SETUP.md`](COOLIFY_SETUP.md).
 It includes:
-- Postgres and Redis shared services
 - API and Web app definitions from this repo
 - Environment variable wiring for production
 - First deployment and smoke-check checklist
+
+Important:
+- The current API is in-memory. It does not require Postgres or Redis to boot in Coolify.
+- The web app now reads `API_BASE_URL` at runtime, so it does not need the API URL baked into the image build.
 
 ## GitHub bootstrap and PR workflow
 1. Add remote and push `main`:

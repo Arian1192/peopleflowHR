@@ -1,167 +1,282 @@
 # Coolify Setup for PeopleFlow HR
 
-This runbook translates the current repo configuration into a production-ready Coolify setup.
+This repository is ready to deploy to Coolify as two separate applications:
+- `apps/api`
+- `apps/web`
 
-## Prerequisites
-- Project has access to repo `https://github.com/Arian1192/peopleflowHR.git`
-- Coolify project/environment selected
-- Domain names available (or temporary Coolify-generated URLs)
+Important before you start:
+- The current API is an in-memory MVP. It does not need Postgres or Redis to run.
+- The web app reads `API_BASE_URL` at runtime, so you do not need to pass the API URL as a Docker build argument.
+- Deploy the API first, then the web app.
+- If you want future-ready infra from day one, you can also create Postgres and Redis now and wire `DATABASE_URL` / `REDIS_URL` into the API.
 
-## 0) Fix server SSH connectivity (required before deployments)
+## 1. Prerequisites
 
-If Coolify fails to connect to a target server, fix this first. Typical errors are:
-- `Connection timed out`
-- `Permission denied (publickey)`
-- `No route to host`
-- `Host key verification failed`
+You need all of the following before creating the apps in Coolify:
+- A working Coolify instance connected to a target server
+- This Git repository available from Coolify
+- A branch to deploy, normally `main`
+- Two domains or subdomains, one for the API and one for the web
 
-### A) Verify target host and port in Coolify
-- In `Infrastructure -> Servers -> <server>`, set `Host` to raw hostname or IP only (no `http://` or path).
-- Set the right `Port` (usually `22`).
-- Set the correct SSH user (`root`, `ubuntu`, `debian`, etc. depending on your VM image).
+Recommended domain layout:
+- `api.peopleflow.example.com` for the API
+- `app.peopleflow.example.com` for the web
 
-### B) Install Coolify public key on the target host
-1. In Coolify server settings, copy the SSH public key for this server entry.
-2. On target host, create the user if missing and install key:
-   ```bash
-   sudo adduser --disabled-password --gecos "" coolify
-   sudo usermod -aG sudo coolify
-   sudo mkdir -p /home/coolify/.ssh
-   sudo chmod 700 /home/coolify/.ssh
-   sudo tee -a /home/coolify/.ssh/authorized_keys
-   sudo chmod 600 /home/coolify/.ssh/authorized_keys
-   sudo chown -R coolify:coolify /home/coolify/.ssh
-   ```
-3. Paste the Coolify public key into `/home/coolify/.ssh/authorized_keys`.
+## 2. Verify the server connection in Coolify
 
-### C) Ensure SSH daemon and firewall allow access
-Run on target host:
+Do not create the applications until the server shows as healthy inside Coolify.
+
+In `Infrastructure -> Servers -> <your-server>` verify:
+- `Host` is only the IP or hostname
+- `Port` is the real SSH port, usually `22`
+- `User` is the correct SSH user for that machine
+
+If Coolify cannot connect:
+- `Connection timed out` usually means wrong IP, closed port, or firewall issue
+- `Permission denied (publickey)` usually means wrong SSH user or missing key
+- `Host key verification failed` usually means the machine was rebuilt and the saved fingerprint is stale
+
+On the target server, make sure SSH is running and accessible:
+
 ```bash
 sudo systemctl enable --now ssh || sudo systemctl enable --now sshd
-sudo ss -ltnp | rg ':22'
+sudo ss -ltnp | grep ':22'
 sudo ufw allow 22/tcp || true
-sudo ufw status
 ```
 
-If the host is in a cloud VPC, also open inbound TCP `22` in the provider security group/network ACL.
+If the server was recreated with the same IP/hostname, remove the old key from the Coolify host:
 
-### D) Validate from the Coolify host
-Run these from the machine where Coolify is installed:
 ```bash
-nc -zv <target-host> 22
-ssh -o StrictHostKeyChecking=accept-new <ssh-user>@<target-host> 'echo ok'
+ssh-keygen -R <your-server-host>
 ```
 
-If DNS is flaky, test with the server IP directly and use that IP in Coolify.
+## 3. Repository facts that matter for deployment
 
-### E) Resolve host key mismatch after server rebuild
-If target host was recreated with same IP/hostname, remove stale key on Coolify host:
-```bash
-ssh-keygen -R <target-host>
-```
-Then reconnect once to accept the new fingerprint.
+Coolify should use these exact settings from this repository:
+- API Dockerfile: `apps/api/Dockerfile`
+- Web Dockerfile: `apps/web/Dockerfile`
+- API internal port: `4000`
+- Web internal port: `3000`
+- API health endpoint: `/healthz`
+- API readiness endpoint: `/readyz`
 
-### F) Quick decision tree
-- `timeout`: wrong host/port, firewall closed, or no route from Coolify host.
-- `permission denied`: wrong SSH user or missing public key in `authorized_keys`.
-- `host key verification failed`: stale `known_hosts` entry; remove and re-accept key.
+The containers are now built with:
+- `npm ci` instead of `npm install`
+- `package-lock.json` included for deterministic builds
+- Multi-stage Dockerfiles for cleaner production images
 
-## 1) Shared services
+## 4. Create the API application in Coolify
 
-Create these first so app environment variables can reference them.
+Create the API first.
 
-### Postgres service
-- Service type: `PostgreSQL`
-- Version: `16`
-- Database: `peopleflow`
-- Username: `postgres`
-- Password: generate strong secret
-- Persistent volume: enabled
+In Coolify:
+1. Open your project.
+2. Click `New Resource`.
+3. Choose `Application`.
+4. Connect the Git repository for this project.
+5. Select the branch you want to deploy, normally `main`.
+6. Choose `Dockerfile` as the build pack.
 
-Expose these values for API wiring:
-- `POSTGRES_HOST`
-- `POSTGRES_PORT` (default `5432`)
-- `POSTGRES_DB` (`peopleflow`)
-- `POSTGRES_USER` (`postgres`)
-- `POSTGRES_PASSWORD`
-
-### Redis service
-- Service type: `Redis`
-- Version: `7` (or latest stable in Coolify)
-- Persistent volume: enabled (recommended)
-
-Expose these values for API wiring:
-- `REDIS_HOST`
-- `REDIS_PORT` (default `6379`)
-
-## 2) API app (`apps/api`)
-
-Create an application from GitHub repo with Dockerfile build.
-
-- Source repo: `https://github.com/Arian1192/peopleflowHR.git`
-- Branch: `main`
-- Build method: `Dockerfile`
-- Dockerfile path: `apps/api/Dockerfile`
+Set these values:
+- Name: `peopleflow-api`
+- Dockerfile location: `apps/api/Dockerfile`
 - Port: `4000`
-- Start command: default from Dockerfile (`npm run start`)
 
-Environment variables:
+Add these environment variables:
 - `NODE_ENV=production`
 - `PORT=4000`
+
+Do not add database or redis variables for the current version of this project.
+
+Optional future-ready variables:
 - `DATABASE_URL=postgres://postgres:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:5432/peopleflow`
 - `REDIS_URL=redis://<REDIS_HOST>:6379`
 
-Template: `apps/api/.env.coolify.example`
+Configure the domain:
+1. Open the `Domains` tab.
+2. Add your API domain, for example `api.peopleflow.example.com`.
+3. Enable HTTPS/TLS in Coolify.
 
-Health check:
-- Path: `/healthz`
-- Expected: HTTP `200` with `{ "ok": true }`
+Configure the health check:
+1. Open the `Healthcheck` section.
+2. Set path to `/healthz`.
+3. Save.
 
-## 3) Web app (`apps/web`)
+Deploy the API.
 
-Create a second application from same repo.
+What you should verify immediately after deploy:
+- The deployment finishes without build errors
+- The container starts without restart loops
+- `https://<api-domain>/healthz` returns HTTP `200`
+- The response body is `{"ok":true}`
+- `https://<api-domain>/readyz` returns:
+  - `200` if the API is healthy and all configured infra targets are reachable
+  - `503` if a configured DB/Redis target is unreachable
 
-- Source repo: `https://github.com/Arian1192/peopleflowHR.git`
-- Branch: `main`
-- Build method: `Dockerfile`
-- Dockerfile path: `apps/web/Dockerfile`
+If the API does not become healthy, check logs for:
+- wrong Dockerfile path
+- missing port configuration
+- application crash during startup
+
+## 5. Create the web application in Coolify
+
+Create the web app only after the API URL is already known and working.
+
+In Coolify:
+1. Open the same project.
+2. Click `New Resource`.
+3. Choose `Application`.
+4. Connect the same Git repository.
+5. Select the same branch, normally `main`.
+6. Choose `Dockerfile` as the build pack.
+
+Set these values:
+- Name: `peopleflow-web`
+- Dockerfile location: `apps/web/Dockerfile`
 - Port: `3000`
-- Start command: default from Dockerfile (`npm run start`)
 
-Environment variables:
+Add these environment variables:
 - `NODE_ENV=production`
 - `PORT=3000`
-- `NEXT_PUBLIC_API_BASE_URL=https://<api-domain>`
+- `API_BASE_URL=https://<api-domain>`
 
-Where `<api-domain>` is the public URL/domain assigned to the API app.
+Use the real public API URL, for example:
+- `API_BASE_URL=https://api.peopleflow.example.com`
 
-Template: `apps/web/.env.coolify.example`
+Configure the domain:
+1. Open the `Domains` tab.
+2. Add your web domain, for example `app.peopleflow.example.com`.
+3. Enable HTTPS/TLS in Coolify.
 
-## 4) Networking and domains
+Deploy the web application.
 
-- Assign domain/subdomain to API app (example `api.peopleflow.example.com`)
-- Assign domain/subdomain to Web app (example `app.peopleflow.example.com`)
-- Enable TLS in Coolify for both
-- Ensure web app can reach API over HTTPS
+What you should verify immediately after deploy:
+- The image builds successfully
+- The container starts without restart loops
+- Opening `https://<web-domain>` loads the page
+- The home page shows `Runtime status: api healthy`
 
-## 5) First deployment order
+## 6. Exact deployment order
 
-1. Deploy Postgres service
-2. Deploy Redis service
-3. Deploy API app and confirm `/healthz`
-4. Deploy Web app and confirm page loads and reports `api healthy`
+Use this order every time you do a fresh setup:
 
-## 6) Smoke checks
+1. Connect and validate the target server in Coolify.
+2. Create and deploy `peopleflow-api`.
+3. Confirm `https://<api-domain>/healthz` responds with HTTP `200`.
+4. Create and deploy `peopleflow-web`.
+5. Confirm the web page loads and reports the API as healthy.
 
-Run after first deploy:
-- `GET https://<api-domain>/healthz` returns 200
-- Open `https://<web-domain>` and verify runtime status is `api healthy`
-- Validate API can connect to DB and Redis (no startup/runtime connection errors in logs)
+If you redeploy both applications after changes:
+1. Deploy API first if API behavior changed.
+2. Deploy web second if the web depends on new API behavior.
 
-## 7) Rollback guardrails
+## 7. Smoke test checklist after the first deployment
 
-- Keep previous successful deployment artifact/tag in Coolify
-- For failed rollout:
-  - rollback Web to previous healthy deployment
-  - rollback API to previous healthy deployment
-- Do not rotate Postgres volume during app rollback
+Run all of these checks without skipping any:
+
+1. Open `https://<api-domain>/healthz`.
+2. Confirm the status code is `200`.
+3. Confirm the response body is `{"ok":true}`.
+4. Open `https://<api-domain>/readyz`.
+5. If you configured `DATABASE_URL` and `REDIS_URL`, confirm both report `reachable`.
+6. Open `https://<web-domain>`.
+7. Confirm the page renders without `502`, `503`, or `SSL` errors.
+8. Confirm the page text shows `Runtime status: api healthy`.
+9. Open the Coolify logs for both services and confirm there are no crash loops.
+
+## 8. Common mistakes in Coolify for this repo
+
+These are the failures most likely to happen:
+
+### Wrong Dockerfile path
+
+Use these exact paths:
+- `apps/api/Dockerfile`
+- `apps/web/Dockerfile`
+
+If you point Coolify at the repository root Dockerfile, the deployment will fail because there is no root Dockerfile in this repo.
+
+### Deploying the web before the API
+
+If `API_BASE_URL` points to a domain that is not live yet:
+- the web container will still boot
+- the home page will report `api unreachable`
+
+That is why the API must be deployed first.
+
+### Using the wrong environment variable in the web app
+
+For this project, configure:
+- `API_BASE_URL`
+
+Do not rely on `NEXT_PUBLIC_API_BASE_URL` for the production deployment path. The web server now reads the API base URL at runtime.
+
+### Expecting persistence that does not exist yet
+
+The API currently stores data in memory.
+
+That means:
+- a restart can reset data
+- scaling to multiple API replicas would create inconsistent state
+
+For the current MVP this is acceptable, but for real production usage you should add persistent storage before going live with real users.
+
+### Confusing health with readiness
+
+Use:
+- `/healthz` to know if the API process is alive
+- `/readyz` to know whether configured infrastructure targets are reachable
+
+If you add Postgres/Redis later, use `/readyz` as your stronger deployment verification endpoint.
+
+## 9. Rollback procedure
+
+If a deployment fails:
+
+1. In Coolify, open the affected application.
+2. Go to the deployments history.
+3. Select the last healthy deployment.
+4. Roll back to that deployment.
+5. Verify the health check again.
+
+Rollback priorities:
+- If only the web broke, roll back `peopleflow-web`
+- If only the API broke, roll back `peopleflow-api`
+- If both broke, recover the API first and the web second
+
+## 10. Local verification before pushing changes
+
+Before sending new commits to Coolify, run this locally:
+
+```bash
+npm run build
+npm test --workspace apps/api
+```
+
+Optional local container check:
+
+```bash
+docker compose up --build
+```
+
+Or, with future-ready infra:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.infrastructure.yml up --build
+```
+
+Then verify:
+- `http://localhost:4000/healthz`
+- `http://localhost:4000/readyz`
+- `http://localhost:3000`
+
+## 11. Files you should use as reference
+
+If you need to review the deployment configuration later, these are the relevant files:
+- `apps/api/Dockerfile`
+- `apps/web/Dockerfile`
+- `apps/api/.env.coolify.example`
+- `apps/api/.env.future.example`
+- `apps/web/.env.coolify.example`
+- `docker-compose.yml`
+- `docker-compose.infrastructure.yml`
