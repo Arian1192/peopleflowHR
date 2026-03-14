@@ -24,6 +24,14 @@ npm run dev --workspace apps/web
 docker compose up --build
 ```
 
+## Coolify deployment configuration
+Use the step-by-step Coolify setup guide in [`COOLIFY_SETUP.md`](COOLIFY_SETUP.md).
+It includes:
+- Postgres and Redis shared services
+- API and Web app definitions from this repo
+- Environment variable wiring for production
+- First deployment and smoke-check checklist
+
 ## GitHub bootstrap and PR workflow
 1. Add remote and push `main`:
 ```bash
