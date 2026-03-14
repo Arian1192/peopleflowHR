@@ -1,5 +1,5 @@
 # Usamos slim para evitar el error de certificados TLS de alpine
-FROM node:22-slim
+FROM node:22-slim as base
 WORKDIR /app
 
 # Declaramos el ARG para que Next.js pueda "ver" la variable durante el build
